@@ -5,6 +5,13 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "Run Dev",
             "type": "python",
             "request": "launch",
@@ -17,6 +24,34 @@
             "env": {
                 "GEVENT_SUPPORT": "True"
             }
-        }
+        },
+        {
+            "name": "Run Perf Sample",
+            "type": "python",
+            "request": "launch",
+            "module": "locust",
+            "justMyCode": false,
+            "args": [
+                "--config",
+                "confs/perf_sample.conf"
+            ],
+            "env": {
+                "GEVENT_SUPPORT": "True"
+            }
+        },
+        {
+            "name": "Run Perf Full",
+            "type": "python",
+            "request": "launch",
+            "module": "locust",
+            "justMyCode": false,
+            "args": [
+                "--config",
+                "confs/perf_sample.conf"
+            ],
+            "env": {
+                "GEVENT_SUPPORT": "True"
+            }
+        },
     ]
 }

@@ -9,18 +9,20 @@ import csv
 from datetime import datetime, timedelta
 import logging
 
-
+proxies = {
+    # "http": "http://localhost:8866",
+    # "https": "http://localhost:8866"
+}
 logger = logging.getLogger(__name__)
 
 
-class Checkout(HttpUser):
+class Checkout2(HttpUser):
     wait_time = between(.3, 5)
 
     @events.init.add_listener
     def on_locust_init(environment, **kwargs):
         environment.token_exp = datetime.now()
         host = re.search(r".*\/\/([^\/:]+)", environment.host)[1].lower()
-
         with open('datafiles/{}/env.json'.format(host), 'r') as f:
             environment.env = json.load(f)
         environment.products = []
@@ -40,6 +42,8 @@ class Checkout(HttpUser):
 
     def get_token(self):
         if datetime.now() >= self.environment.token_exp:
+            if self.client.headers.get('Authorization'):
+                del self.client.headers['Authorization']
             resp = self.client.post(
                 '{}/api/platform/applications/authtickets/oauth'.format(
                     self.environment.env['auth_server']),
@@ -56,38 +60,48 @@ class Checkout(HttpUser):
 
     def get_or_create_cart(self, user_id):
         resp = self.client.post(
-            '/api/commerce/carts/user/{}?responseFields=id'.format(user_id),
+            '/api/commerce/carts/user/{}?responseFields=id,items(id)'.format(
+                user_id),
             name='get_or_create_cart'
         )
         self.log_on_non_success(resp)
-        return resp.json()['id']
+        cart = resp.json()
+        if cart.get('items') and len(cart.get('items')) > 1:
+            resp = self.client.delete(
+                '/api/commerce/carts/{}/items?responseFields=id'.format(
+                    cart['id']),
+                name='clear_cart'
+            )
+        self.log_on_non_success(resp)
+
+        return cart['id']
 
     def log_on_non_success(self, resp):
-        if (resp.status_code > 400):
-            msg = resp.json()
+        if (resp.status_code > 399):
+            if resp.headers.get('content-type') and resp.headers.get('content-type').lower().find("json") > 1:
+                msg = resp.json()
+            else:
+                msg = resp.text
             logger.warning(msg)
             return False
         return True
 
     def add_product_to_cart(self, product, cart_id):
-        body = {
-            "product": {
-                "productCode": product[0],
-                "variationProductCode": product[1],
-                "options": [
-                    {
-                        "attributeFQN": product[2],
-                        "value": product[3],
-                    }]
-            },
-            "quantity": 1,
-            "fulfillmentMethod": "Ship"
-        }
+
         resp = self.client.post(
             '/api/commerce/carts/{}/items?responseFields=id'.format(
                 cart_id),
-            json=body,
+            json=product,
             name='add_item_to_cart'
+        )
+        return self.log_on_non_success(resp)
+
+    def add_products_to_cart(self, products, cart_id):
+        resp = self.client.post(
+            '/api/commerce/carts/{}/bulkitems?responseFields=id,item(id)'.format(
+                cart_id),
+            json=products,
+            name='add_items_to_cart'
         )
         return self.log_on_non_success(resp)
 
@@ -97,7 +111,12 @@ class Checkout(HttpUser):
                 cart_id),
             name='create_order_from_cart'
         )
-        self.log_on_non_success(resp)
+        if not self.log_on_non_success(resp):
+            resp = self.client.delete(
+                '/api/commerce/carts/{}/items?responseFields=id'.format(
+                    cart_id),
+                name='clear_cart'
+            )
 
         order_id = resp.json()['id']
         return order_id
@@ -162,7 +181,7 @@ class Checkout(HttpUser):
             "accountType": "B2C"
         }
         resp = self.client.post(
-            '/api/commerce/customer/accounts?responseFields=id',
+            'https://t29621-s48972.tp1.kibong-perf.com/api/commerce/customer/accounts?responseFields=id',
             json=body,
             name='create_user')
         self.log_on_non_success(resp)
@@ -182,6 +201,47 @@ class Checkout(HttpUser):
         self.log_on_non_success(resp)
         return resp.json()['id']
 
+    def random_pricelist(self, user):
+        pl_num = 1 + (int(user[2]) % self.environment.env["priceListCount"])
+        return 'pricelist_{}'.format(pl_num)
+
+    def random_user(self, anon):
+        if (anon):
+            user_id = str(uuid.uuid4()).replace('-', '')
+            user_num = random.randrange(1, 1000000000, 1)
+            user_email = 'test.user{}@test.com'.format(user_num)
+            return [user_id, user_email, user_num]
+        return random.choice(self.environment.users)
+
+    def random_product(self, bogo=False):
+        if bogo:
+            prod_id = random.randrange(
+                1, self.environment.env["bogoCount"])
+        else:
+            prod_id = random.randrange(
+                1, self.environment.env["productCount"])
+        product = 'prod_{}'.format(prod_id)
+        color = random.choice(self.environment.env["colors"])
+        size = random.choice(self.environment.env["sizes"])
+        sku = '{}_{}_{}'.format(product, color, size)
+        return {
+            "product": {
+                "productCode": product,
+                "variationProductCode": sku,
+                "options": [
+                    {
+                        "attributeFQN": "tenant~color",
+                        "value": color,
+                    },
+                    {
+                        "attributeFQN": "tenant~size",
+                        "value": size,
+                    }]
+            },
+            "quantity": 1,
+            "fulfillmentMethod": "Ship"
+        }
+
     def submit_order(self, order_id, user):
         body = {
             "actionName": "SubmitOrder"
@@ -193,42 +253,77 @@ class Checkout(HttpUser):
             name='submit_order')
         self.log_on_non_success(resp)
 
-    # @tag('auth_user')
-    # @task(5)
-    # def auth_user(self):
-    #     token = self.get_token()
-    #     self.client.headers.update(
-    #         {'Authorization': 'Bearer {}'.format(token)})
-    #     user = random.choice(
-    #         self.environment.users)
-    #     cart_id = self.get_or_create_cart(user[0])
-    #     for x in range(0, 5):
-    #         product = random.choice(
-    #             self.environment.products)
-    #         self.add_product_to_cart(product, cart_id)
-    #     order_id = self.create_order_from_cart(cart_id)
-    #     self.set_fulfillment(order_id, user)
-    #     self.set_payment(order_id, user)
-    #     self.submit_order(order_id, user)
+    def init_haders(self, token, pricelist):
+        self.client.proxies = proxies
+        if proxies.get("https"):
+            self.client.verify = False
+        self.client.base_url = re.search(
+            r"http.*\/\/[^\/]*", self.environment.host)[0]
+        self.client.headers.update(
+            {
+                'Authorization': 'Bearer {}'.format(token),
+                'x-vol-pricelist': pricelist
+            })
+        self.client.headers.update(
+            {'x-vol-locale': 'en-US',
+             'x-vol-currency': 'USD',
+             'x-vol-tenant': '29621',
+             'x-vol-site': '48972',
+             'x-vol-master-catalog': '1',
+             'x-vol-catalog': '1'})
+
+    def add_products(self, cart_id):
+        products = [self.random_product(True),
+                    self.random_product(),
+                    self.random_product()]
+        self.add_products_to_cart(products, cart_id)
+        self.add_product_to_cart(self.random_product(), cart_id)
+
+    @ tag('auth_user')
+    @ task(5)
+    def auth_user(self):
+        token = self.get_token()
+        user = self.random_user(False)
+        pricelist = self.random_pricelist(user)
+        self.init_haders(token, pricelist)
+        cart_id = self.get_or_create_cart(user[0])
+
+        self.add_products(cart_id)
+        order_id = self.create_order_from_cart(cart_id)
+        self.set_fulfillment(order_id, user)
+        self.set_payment(order_id, user)
+        self.submit_order(order_id, user)
 
     @ tag('anon_user')
     @ task(5)
     def anaon_user(self):
         token = self.get_token()
-        self.client.headers.update(
-            {'Authorization': 'Bearer {}'.format(token)})
+        user = self.random_user(True)
+        pricelist = self.random_pricelist(user)
+        self.init_haders(token, pricelist)
         user_id = str(uuid.uuid4()).replace('-', '')
         user_email = 'test.user{}@test.com'.format(
             random.randrange(1, 1000000000, 1))
         user = [user_id, user_email]
         cart_id = self.get_or_create_cart(user[0])
-        for x in range(0, 5):
-            product = random.choice(
-                self.environment.products)
-            self.add_product_to_cart(product, cart_id)
+        self.add_products(cart_id)
         order_id = self.create_order_from_cart(cart_id)
         self.set_fulfillment(order_id, user)
         self.set_payment(order_id, user)
         customer_id = self.create_customer(order_id, user)
         self.add_customer_to_order(order_id, customer_id)
         self.submit_order(order_id, user)
+
+    @ tag('anon_user_abandon')
+    @ task(10)
+    def anon_user_abandon(self):
+        token = self.get_token()
+        user = self.random_user(True)
+        pricelist = self.random_pricelist(user)
+        self.init_haders(token, pricelist)
+        user_id = str(uuid.uuid4()).replace('-', '')
+        user_email = 'test.user{}@test.com'.format(
+            random.randrange(1, 1000000000, 1))
+        user = [user_id, user_email]
+        cart_id = self.get_or_create_cart(user[0])
+        self.add_products(cart_id)

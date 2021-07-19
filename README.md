@@ -18,7 +18,6 @@ host =  https://[host]
 * update the datafiles/[host]/env.json 
 ```json
 {
-    "auth_server": "https://home.mozu.com",
     "app_id": "??????",
     "app_secrete": "??????",
     
@@ -30,3 +29,8 @@ host =  https://[host]
 ```bash
 locust --config confs/dev.conf
 ```
+
+### senarios / conf files
+* ./confs/dev.conf : sandbox lite load
+* ./confs/perf_sample.conf : perf data set with 1 user
+* ./confs/perf_full.conf : perf data set with load to generate 120k carts/ 60 submitted orders and hour.
