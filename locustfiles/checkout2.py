@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import logging
 
 proxies = {
-    # "http": "http://localhost:8866",
+    "http": "http://localhost:8866",
     # "https": "http://localhost:8866"
 }
 logger = logging.getLogger(__name__)
@@ -263,13 +263,13 @@ class Checkout2(HttpUser):
                 'Authorization': 'Bearer {}'.format(token),
                 'x-vol-pricelist': pricelist
             })
-        self.client.headers.update(
-            {'x-vol-locale': 'en-US',
-             'x-vol-currency': 'USD',
-             'x-vol-tenant': '29621',
-             'x-vol-site': '48972',
-             'x-vol-master-catalog': '1',
-             'x-vol-catalog': '1'})
+        # self.client.headers.update(
+        #     {'x-vol-locale': 'en-US',
+        #      'x-vol-currency': 'USD',
+        #      'x-vol-tenant': '29621',
+        #      'x-vol-site': '48972',
+        #      'x-vol-master-catalog': '1',
+        #      'x-vol-catalog': '1'})
 
     def add_products(self, cart_id):
         products = [self.random_product(True),
