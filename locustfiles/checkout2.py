@@ -42,8 +42,7 @@ class Checkout2(HttpUser):
 
     def get_token(self):
         if datetime.now() >= self.environment.token_exp:
-            if self.client.headers.get('Authorization'):
-                del self.client.headers['Authorization']
+            self.client.headers = {}
             resp = self.client.post(
                 '{}/api/platform/applications/authtickets/oauth'.format(
                     self.environment.env['auth_server']),
